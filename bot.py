@@ -9,11 +9,10 @@ from apscheduler.jobstores.base import JobLookupError
 from apscheduler.jobstores.memory import MemoryJobStore
 from datetime import datetime
 from pytz import timezone
-import pytz
 import sqlite3
-import aiohttp
 from aiohttp import web
 import asyncio
+import aiohttp_cors
 
 # Short and full book name mapping
 book_mapping = {
@@ -35,7 +34,7 @@ book_mapping = {
 
 # Load environment variables
 load_dotenv()
-TOKEN = os.getenv("DISCORD_TOKEN")
+TOKEN = 'MTMyMzEzMTQzMDk3NjQ4NzUxOQ.G8AJZb.7PAnL-LiQ538vzbmUWC0soQ1tJKDhJJOtXX21g'
 
 # Set up bot
 intents = discord.Intents.default()
@@ -52,7 +51,9 @@ scheduler = AsyncIOScheduler()
 
 @bot.event
 async def on_ready():
-    init_database()
+    
+    # init_database()
+
     print(f'{bot.user} is now online!')
 
     # Configure scheduler with Jakarta timezone
@@ -83,7 +84,6 @@ async def on_ready():
     except Exception as e:
         print(f"Error during startup: {e}")
     
-
 # Helper function to find the target channel
 async def get_target_channel(ctx, channel_name):
     target_channel = discord.utils.get(ctx.guild.text_channels, name=channel_name)
@@ -167,6 +167,25 @@ async def get_reading_reports(request):
     finally:
         conn.close()
 
+async def get_all_reading_reports(request):
+    """Endpoint to retrieve all reading reports"""
+    conn = sqlite3.connect('reading_tracker.db')
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''SELECT * FROM reading_reports''')
+        
+        reports = cursor.fetchall()
+        
+        # Convert to list of dictionaries
+        column_names = [description[0] for description in cursor.description]
+        reports_list = [dict(zip(column_names, report)) for report in reports]
+        
+        return web.json_response(reports_list)
+    except sqlite3.Error as e:
+        return web.json_response({"error": str(e)}, status=500)
+    finally:
+        conn.close()
+
 async def start_background_tasks(app):
     """Start background tasks when the app starts"""
     # You can add any additional background tasks here if needed
@@ -184,11 +203,23 @@ def create_http_server():
     # Add routes
     app.router.add_get('/', health_check)
     app.router.add_get('/reports', get_reading_reports)
-    
+    app.router.add_get('/all_reports', get_all_reading_reports)
+     
     # Add lifecycle hooks
     app.on_startup.append(start_background_tasks)
     app.on_cleanup.append(cleanup_background_tasks)
-    
+
+    # Middleware to add CORS headers
+    @web.middleware
+    async def cors_middleware(request, handler):
+        response = await handler(request)
+        response.headers['Access-Control-Allow-Origin'] = 'http://localhost'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return response
+
+    app.middlewares.append(cors_middleware)
+
     return app
     
 # SQLite Database for Tracking
@@ -784,7 +815,7 @@ async def send_bible_verse(channel, verses, reading_plan_id):
     # Create a view with a "Done" button
     class ReadingDoneView(discord.ui.View):
         def __init__(self, reading_plan_id, date, verses):
-            super().__init__()
+            super().__init__(timeout=None)
             self.reading_plan_id = reading_plan_id
             self.date = date
             self.verses = ", ".join(verses)
@@ -793,6 +824,7 @@ async def send_bible_verse(channel, verses, reading_plan_id):
 
         @discord.ui.button(label="Done Read", style=discord.ButtonStyle.green)
         async def mark_done(self, interaction: discord.Interaction, button: discord.ui.Button):
+            
             # Defer the response immediately to prevent timeout
             await interaction.response.defer(ephemeral=True)
             
@@ -831,6 +863,7 @@ async def send_bible_verse(channel, verses, reading_plan_id):
                         f"Terima kasih {interaction.user.mention}, pembacaan Anda atas ayat-ayat tersebut telah dicatat.",
                         ephemeral=True
                     )
+                    
                 else:
                     await interaction.followup.send(
                         f"Maaf {interaction.user.mention}, terdapat kesalahan didalam mencatat pembacaanmu.",
@@ -861,3 +894,4 @@ async def main():
 if __name__ == "__main__":
     # Run both Discord bot and HTTP server
     asyncio.run(main())
+
