@@ -34,7 +34,7 @@ book_mapping = {
 
 # Load environment variables
 load_dotenv()
-TOKEN = 'MTMyMzEzMTQzMDk3NjQ4NzUxOQ.G8AJZb.7PAnL-LiQ538vzbmUWC0soQ1tJKDhJJOtXX21g'
+TOKEN = 'env'
 
 # Set up bot
 intents = discord.Intents.default()
